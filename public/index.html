@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Audio Chat</title>
+  </head>
+  <body>
+    <h1>Audio Chat</h1>
+    <button id="start-button">Start Call</button>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+      const socket = io();
+
+      const startButton = document.getElementById("start-button");
+      let localStream;
+      let peerConnection;
+
+      const peerConnectionConfig = {
+        iceServers: [
+          {
+            urls: "stun:stun.stunprotocol.org",
+          },
+        ],
+      };
+
+      startButton.addEventListener("click", async () => {
+        localStream = await navigator.mediaDevices.getUserMedia({
+          audio: true,
+        });
+        peerConnection = new RTCPeerConnection(peerConnectionConfig);
+
+        localStream
+          .getTracks()
+          .forEach((track) => peerConnection.addTrack(track, localStream));
+
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit("candidate", event.candidate);
+          }
+        };
+
+        peerConnection.ontrack = (event) => {
+          const audioElement = document.createElement("audio");
+          audioElement.srcObject = event.streams[0];
+          audioElement.play();
+        };
+
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        socket.emit("offer", offer);
+      });
+
+      socket.on("offer", async (offer) => {
+        if (!peerConnection) {
+          peerConnection = new RTCPeerConnection(peerConnectionConfig);
+
+          localStream
+            .getTracks()
+            .forEach((track) => peerConnection.addTrack(track, localStream));
+
+          peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+              socket.emit("candidate", event.candidate);
+            }
+          };
+
+          peerConnection.ontrack = (event) => {
+            const audioElement = document.createElement("audio");
+            audioElement.srcObject = event.streams[0];
+            audioElement.play();
+          };
+        }
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(offer)
+        );
+        const answer = await peerConnection.createAnswer();
+        await peerConnection.setLocalDescription(answer);
+        socket.emit("answer", answer);
+      });
+
+      socket.on("answer", async (answer) => {
+        await peerConnection.setRemoteDescription(
+          new RTCSessionDescription(answer)
+        );
+      });
+
+      socket.on("candidate", (candidate) => {
+        peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      });
+    </script>
+  </body>
+</html>
